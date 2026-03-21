@@ -1,0 +1,160 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+@theme {
+  --color-bg: #0f1117;
+  --color-bg-panel: #1a1b23;
+  --color-bg-node: #23242e;
+  --color-border: #2e303a;
+  --color-border-hover: #4a4c5a;
+  --color-text: #9ca3af;
+  --color-text-bright: #f3f4f6;
+  --color-accent: #c084fc;
+  --color-accent-dim: rgba(192, 132, 252, 0.15);
+  --color-status-green: #22c55e;
+  --color-status-yellow: #eab308;
+  --color-status-red: #ef4444;
+  --color-status-gray: #6b7280;
+  --color-edge: #4a4c5a;
+  --color-edge-label: #6b7280;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 14px;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* React Flow overrides */
+.react-flow__background {
+  background: var(--color-bg) !important;
+}
+
+.react-flow__minimap {
+  background: var(--color-bg-panel) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+}
+
+.react-flow__controls {
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: var(--color-bg-panel) !important;
+  border-bottom-color: var(--color-border) !important;
+  fill: var(--color-text) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--color-bg-node) !important;
+}
+
+/* Agent markdown styles */
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3 {
+  color: var(--color-text-bright);
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+}
+.agent-markdown h1 { font-size: 1.1em; }
+.agent-markdown h2 { font-size: 1em; }
+.agent-markdown h3 { font-size: 0.95em; }
+
+.agent-markdown p {
+  margin: 0.4em 0;
+}
+
+.agent-markdown ul,
+.agent-markdown ol {
+  padding-left: 1.25em;
+  margin: 0.4em 0;
+}
+
+.agent-markdown li {
+  margin: 0.15em 0;
+}
+
+.agent-markdown strong {
+  color: var(--color-text-bright);
+  font-weight: 600;
+}
+
+.agent-markdown em {
+  color: var(--color-accent);
+  font-style: italic;
+}
+
+.agent-markdown a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.agent-markdown code {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  font-size: 0.92em;
+  color: var(--color-text-bright);
+}
+
+.agent-markdown pre {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.75em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+
+.agent-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.agent-markdown blockquote {
+  border-left: 2px solid var(--color-accent);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: var(--color-text);
+}
+
+.agent-markdown hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 0.75em 0;
+}
+
+.agent-markdown table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  border: 1px solid var(--color-border);
+  padding: 0.3em 0.5em;
+  text-align: left;
+}
+
+.agent-markdown th {
+  background: var(--color-bg-node);
+  color: var(--color-text-bright);
+  font-weight: 600;
+}
