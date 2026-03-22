@@ -17,6 +17,11 @@ import type { CellNodeData } from "./lib/graph";
 
 const SESSION_ID_KEY = "sporulator:sessionId";
 
+/** Normalize cell ID: strip leading colon so ":order/validate" → "order/validate" */
+function normCellId(id: string): string {
+  return id.startsWith(":") ? id.slice(1) : id;
+}
+
 function getOrCreateSessionId(): string {
   const stored = localStorage.getItem(SESSION_ID_KEY);
   if (stored) return stored;
@@ -147,10 +152,11 @@ function App() {
     } else if (msg.type === "orchestrator_event") {
       // Backend sends kebab-case keys (cell-id), handle both formats
       const evt = msg.payload as Record<string, unknown>;
-      const cellId = (evt["cell-id"] || evt["cell_id"]) as string | undefined;
+      const rawCellId = (evt["cell-id"] || evt["cell_id"]) as string | undefined;
       const phase = evt.phase as string | undefined;
       const status = evt.status as string | undefined;
-      if (cellId) {
+      if (rawCellId) {
+        const cellId = normCellId(rawCellId);
         setCellProgress((prev) => ({
           ...prev,
           [cellId]: {
@@ -162,8 +168,9 @@ function App() {
       }
     } else if (msg.type === "cell_result") {
       const result = msg.payload as Record<string, unknown>;
-      const cellId = (result["cell-id"] || result["cell_id"] || result["cell_id"]) as string | undefined;
-      if (cellId) {
+      const rawCellId = (result["cell-id"] || result["cell_id"]) as string | undefined;
+      if (rawCellId) {
+        const cellId = normCellId(rawCellId);
         setCellProgress((prev) => ({
           ...prev,
           [cellId]: { status: "implemented", message: "Implementation complete" },
