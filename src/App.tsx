@@ -177,6 +177,22 @@ function App() {
         }));
         refreshCells();
       }
+    } else if (msg.type === "orchestrator_complete" || msg.type === "orchestrator_error") {
+      const payload = msg.payload as Record<string, unknown>;
+      const passed = (payload.passed || []) as string[];
+      const failed = (payload.failed || []) as string[];
+      // Mark all passed cells as implemented
+      setCellProgress((prev) => {
+        const updated = { ...prev };
+        for (const id of passed) {
+          updated[normCellId(id)] = { status: "implemented", message: "Complete" };
+        }
+        for (const id of failed) {
+          updated[normCellId(id)] = { status: "failing", message: "Failed" };
+        }
+        return updated;
+      });
+      refreshCells();
     }
   };
 
