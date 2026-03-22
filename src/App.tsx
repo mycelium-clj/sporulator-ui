@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GraphCanvas } from "./components/GraphCanvas";
 import { DetailPanel } from "./components/DetailPanel";
+import { StepsPreview } from "./components/StepsPreview";
 import { StatusBar } from "./components/StatusBar";
 import { RequirementsInput } from "./components/RequirementsInput";
-import { AgentStream } from "./components/AgentStream";
 import { CellModal } from "./components/CellModal";
 import {
   connectWs, sendWs,
@@ -12,10 +12,8 @@ import {
   listSessions, getSession, clearSession,
 } from "./lib/api";
 import { extractManifestEdn } from "./lib/edn";
-import type { Cell, CellProgress, WsMessage } from "./types";
+import type { AppState, Cell, CellProgress, ChatMessage, StreamPhase, WsMessage } from "./types";
 import type { CellNodeData } from "./lib/graph";
-
-type AppState = "loading" | "input" | "generating" | "ready";
 
 const SESSION_ID_KEY = "sporulator:sessionId";
 
@@ -28,15 +26,16 @@ function getOrCreateSessionId(): string {
 }
 
 function App() {
-  const [appState, setAppState] = useState<AppState>("loading");
-  const [selectedStep, setSelectedStep] = useState<string | null>(null);
-  const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
+  const [appState, setAppState] = useState<AppState>("input");
   const [modalCell, setModalCell] = useState<{ step: string; cellId: string; nodeData: CellNodeData } | null>(null);
   const [manifestBody, setManifestBody] = useState<string | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [cellProgress, setCellProgress] = useState<Record<string, CellProgress>>({});
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [streamContent, setStreamContent] = useState("");
+  const [stepsContent, setStepsContent] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [, setStreamPhase] = useState<StreamPhase>(null);
   const [sessionId] = useState(getOrCreateSessionId);
   const projectPathRef = useRef("");
   const manifestBodyRef = useRef<string | null>(null);
@@ -45,9 +44,7 @@ function App() {
 
   const persistManifest = useCallback((body: string) => {
     if (!projectPathRef.current) return;
-    exportManifest(projectPathRef.current, { body }).catch((err) => {
-      console.warn("Failed to export manifest:", err);
-    });
+    exportManifest(projectPathRef.current, { body }).catch(() => {});
   }, []);
 
   const refreshCells = useCallback(() => {
@@ -59,36 +56,11 @@ function App() {
   // On mount: restore state from backend
   useEffect(() => {
     async function init() {
-      // Infer project path from REPL
       getReplProjectPath()
         .then(({ path }) => { if (path) projectPathRef.current = path; })
         .catch(() => {});
 
-      // Try to restore chat session
-      let lastAssistantContent = "";
-      try {
-        const sessions = await listSessions();
-        if (sessions.length > 0) {
-          const mySession = sessions.find(s => s.ID === sessionId) || sessions[0];
-          const { messages } = await getSession(mySession.ID);
-
-          if (messages.length > 0) {
-            if (mySession.ID !== sessionId) {
-              localStorage.setItem(SESSION_ID_KEY, mySession.ID);
-            }
-
-            const lastAssistant = [...messages].reverse().find(m => m.Role === "assistant");
-            if (lastAssistant) {
-              lastAssistantContent = lastAssistant.Content;
-              setStreamContent(lastAssistantContent);
-            }
-          }
-        }
-      } catch {
-        // Sessions API not available
-      }
-
-      // Load manifest from store
+      // Try to restore manifest from store
       try {
         const manifests = await listManifests();
         if (manifests.length > 0) {
@@ -96,41 +68,68 @@ function App() {
           const cellList = await listCells();
           setManifestBody(manifest.Body);
           setCells(cellList as Cell[]);
-          setAppState("ready");
-          return;
-        }
-      } catch {
-        // Backend not available
-      }
 
-      // No manifest in store — try to extract from restored chat
-      if (lastAssistantContent) {
-        const ednBody = extractManifestEdn(lastAssistantContent);
-        if (ednBody) {
-          setManifestBody(ednBody);
+          // Restore chat history
+          try {
+            const sessions = await listSessions();
+            const mySession = sessions.find(s => s.ID === sessionId) || sessions[0];
+            if (mySession) {
+              const { messages } = await getSession(mySession.ID);
+              if (messages.length > 0) {
+                setChatMessages(messages.map(m => ({
+                  role: m.Role as "user" | "assistant",
+                  content: m.Content,
+                })));
+              }
+            }
+          } catch { /* no sessions */ }
+
           setAppState("ready");
           return;
         }
-      }
+      } catch { /* backend not available */ }
 
       setAppState("input");
     }
-
     init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Keep refs in sync with latest state
   manifestBodyRef.current = manifestBody;
 
-  // Keep the handler ref up to date so the WS always dispatches through the latest closure
+  // WebSocket message handler
   wsHandlerRef.current = (msg: WsMessage) => {
     if (msg.type === "stream_chunk" && msg.id === sessionId) {
-      const chunk = (msg.payload as { chunk: string }).chunk;
-      setStreamContent((prev) => prev + chunk);
+      const payload = msg.payload as { chunk: string; phase?: string };
+      const phase = payload.phase as StreamPhase;
+
+      if (phase === "decompose") {
+        setStepsContent((prev) => prev + payload.chunk);
+        setStreamPhase("decompose");
+        if (appState !== "decomposing") setAppState("decomposing");
+      } else if (phase === "manifest") {
+        setStreamContent((prev) => prev + payload.chunk);
+        setStreamPhase("manifest");
+        if (appState !== "generating") setAppState("generating");
+      } else {
+        // Follow-up (no phase) — regular graph_chat response
+        setStreamContent((prev) => prev + payload.chunk);
+      }
     } else if (msg.type === "stream_end" && msg.id === sessionId) {
-      const content = (msg.payload as { content: string }).content;
-      setStreamContent(content);
+      const payload = msg.payload as { content: string; steps?: string };
       setStreaming(false);
+      setStreamPhase(null);
+
+      // Save steps if provided
+      if (payload.steps) {
+        setStepsContent(payload.steps);
+      }
+
+      const content = payload.content;
+      setStreamContent(content);
+
+      // Add assistant message to chat
+      setChatMessages((prev) => [...prev, { role: "assistant", content }]);
+
       const ednBody = extractManifestEdn(content);
       if (ednBody) {
         setManifestBody(ednBody);
@@ -138,21 +137,22 @@ function App() {
         refreshCells();
         setAppState("ready");
       }
+    } else if (msg.type === "design_event" && msg.id === sessionId) {
+      const evt = msg.payload as { event_type: string; steps?: string };
+      if (evt.event_type === "steps_complete" && evt.steps) {
+        setStepsContent(evt.steps);
+        setAppState("generating");
+      }
     } else if (msg.type === "stream_error" && (!msg.id || msg.id === sessionId)) {
-      setStreamContent((prev) => prev + `\n\nError: ${msg.payload}`);
+      setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg.payload}` }]);
       setStreaming(false);
-
+      setStreamPhase(null);
     } else if (msg.type === "error") {
-      setStreamContent((prev) => prev + `\n\nError: ${msg.payload}`);
+      setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg.payload}` }]);
       setStreaming(false);
-
     } else if (msg.type === "orchestrator_event") {
       const evt = msg.payload as {
-        phase?: string;
-        cell_id?: string;
-        status?: string;
-        message?: string;
-        attempt?: number;
+        phase?: string; cell_id?: string; status?: string; message?: string; attempt?: number;
       };
       if (evt.cell_id) {
         setCellProgress((prev) => ({
@@ -164,23 +164,18 @@ function App() {
           },
         }));
       }
-
     } else if (msg.type === "cell_result") {
       const result = msg.payload as { cell_id?: string };
       if (result.cell_id) {
         setCellProgress((prev) => ({
           ...prev,
-          [result.cell_id!]: {
-            status: "implemented",
-            message: "Implementation complete",
-          },
+          [result.cell_id!]: { status: "implemented", message: "Implementation complete" },
         }));
         refreshCells();
       }
     }
   };
 
-  // Stable WS connector — never recreated, dispatches through the ref
   const ensureWs = useCallback((): WebSocket => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       return wsRef.current;
@@ -193,88 +188,91 @@ function App() {
     return ws;
   }, []);
 
+  const sendMessage = useCallback((ws: WebSocket, type: string, payload: Record<string, unknown>) => {
+    const send = () => sendWs(ws, type, { payload });
+    if (ws.readyState === WebSocket.OPEN) send();
+    else ws.addEventListener("open", send, { once: true });
+  }, []);
+
+  // Initial design: uses graph_design (two-phase: decompose then manifest)
   const handleSubmitRequirements = useCallback((requirements: string) => {
     setStreamContent("");
+    setStepsContent("");
     setStreaming(true);
-    setAppState("generating");
+    setStreamPhase("decompose");
+    setAppState("decomposing");
+    setChatMessages((prev) => [...prev, { role: "user", content: requirements }]);
+
     const ws = ensureWs();
+    sendMessage(ws, "graph_design", { session_id: sessionId, message: requirements });
+  }, [ensureWs, sendMessage, sessionId]);
 
-    const send = () => {
-      sendWs(ws, "graph_chat", {
-        payload: { session_id: sessionId, message: requirements },
-      });
-    };
-
-    if (ws.readyState === WebSocket.OPEN) {
-      send();
-    } else {
-      ws.addEventListener("open", send, { once: true });
-    }
-  }, [ensureWs, sessionId]);
-
+  // Follow-up: uses graph_chat (single-phase, sends current manifest)
   const handleFollowUp = useCallback((message: string) => {
     setStreamContent("");
     setStreaming(true);
+    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
+
     const ws = ensureWs();
-
-    const send = () => {
-      sendWs(ws, "graph_chat", {
-        payload: {
-          session_id: sessionId,
-          message,
-          manifest: manifestBodyRef.current || "",
-        },
-      });
-    };
-
-    if (ws.readyState === WebSocket.OPEN) {
-      send();
-    } else {
-      ws.addEventListener("open", send, { once: true });
-    }
-  }, [ensureWs, sessionId]);
+    sendMessage(ws, "graph_chat", {
+      session_id: sessionId,
+      message,
+      manifest: manifestBodyRef.current || "",
+    });
+  }, [ensureWs, sendMessage, sessionId]);
 
   const handleClearContext = useCallback(() => {
     clearSession(sessionId).catch(() => {});
+    setChatMessages([]);
     setStreamContent("");
+    setStepsContent("");
   }, [sessionId]);
 
-  const handleNodeClick = useCallback((stepName: string, cellId: string, nodeData: CellNodeData) => {
-    setSelectedStep(stepName);
-    setSelectedCellId(cellId);
-    setModalCell({ step: stepName, cellId, nodeData });
+  const handleNodeClick = useCallback((_stepName: string, cellId: string, nodeData: CellNodeData) => {
+    setModalCell({ step: _stepName, cellId, nodeData });
   }, []);
+
+  // Determine what shows in the main area
+  const showGraph = appState === "ready" && manifestBody;
+  const showSteps = appState === "decomposing";
+  const showGenerating = appState === "generating";
 
   return (
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex flex-1 overflow-hidden">
+        {/* Main area */}
         <div className="flex-1 flex flex-col min-w-0">
-          {appState === "loading" && (
-            <div className="flex-1 flex items-center justify-center text-text">
-              <div className="flex items-center gap-3">
-                <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                Connecting...
-              </div>
-            </div>
-          )}
-
           {appState === "input" && (
             <RequirementsInput onSubmit={handleSubmitRequirements} />
           )}
 
-          {appState === "generating" && (
-            <div className="flex-1 flex flex-col items-center justify-center text-text px-8">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                <span className="text-text-bright">Designing workflow...</span>
-              </div>
-              <div className="text-xs text-text/50 max-w-md text-center">
-                The graph agent is analyzing your requirements and designing the workflow graph
+          {showSteps && (
+            <StepsPreview content={stepsContent} isStreaming={streaming} />
+          )}
+
+          {showGenerating && (
+            <div className="flex-1 flex flex-col">
+              {/* Show steps summary at top */}
+              {stepsContent && (
+                <div className="border-b border-[var(--color-border)] max-h-48 overflow-auto">
+                  <StepsPreview content={stepsContent} isStreaming={false} />
+                </div>
+              )}
+              <div className="flex-1 flex flex-col items-center justify-center text-text px-8">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                  <span className="text-text-bright">Building manifest...</span>
+                </div>
+                {streamContent && (
+                  <div className="text-xs text-text/50 max-w-lg font-mono whitespace-pre-wrap max-h-64 overflow-auto">
+                    {streamContent.slice(-500)}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {appState === "ready" && manifestBody && (
+          {showGraph && (
             <GraphCanvas
               manifestBody={manifestBody}
               cells={cells}
@@ -284,20 +282,21 @@ function App() {
           )}
         </div>
 
+        {/* Right sidebar */}
         <div className="w-96 border-l border-border bg-bg-panel shrink-0 flex flex-col">
-          {streaming || streamContent ? (
-            <AgentStream
-              content={streamContent}
-              isStreaming={streaming}
-              onFollowUp={handleFollowUp}
-              onClearContext={handleClearContext}
-            />
-          ) : appState === "ready" ? (
+          {appState === "ready" ? (
             <DetailPanel
-              selectedStep={selectedStep}
-              selectedCellId={selectedCellId}
+              messages={chatMessages}
+              streaming={streaming}
+              streamContent={streamContent}
+              onSendMessage={handleFollowUp}
+              onClear={handleClearContext}
             />
-          ) : null}
+          ) : appState === "input" ? null : (
+            <div className="flex-1 flex items-center justify-center text-text/40 text-sm">
+              {streaming ? "Agent is working..." : ""}
+            </div>
+          )}
         </div>
       </div>
 
@@ -319,35 +318,19 @@ function App() {
 function mapOrchestratorStatus(phase?: string, status?: string): CellProgress["status"] {
   if (phase === "cell_implement") {
     switch (status) {
-      case "started":
-      case "written":
-      case "lint_fix":
-      case "info":
+      case "started": case "written": case "lint_fix": case "info": case "contract_ok":
         return "implementing";
-      case "fixing":
-        return "fixing";
-      case "contract_ok":
-        return "implementing";
-      case "contract_violation":
-      case "error":
-        return "failing";
-      default:
-        return "implementing";
+      case "fixing": return "fixing";
+      case "contract_violation": case "error": return "failing";
+      default: return "implementing";
     }
   }
   if (phase === "cell_test") {
     switch (status) {
-      case "started":
-      case "written":
-      case "running":
-        return "testing";
-      case "passed":
-        return "implemented";
-      case "failed":
-      case "error":
-        return "failing";
-      default:
-        return "testing";
+      case "started": case "written": case "running": return "testing";
+      case "passed": return "implemented";
+      case "failed": case "error": return "failing";
+      default: return "testing";
     }
   }
   return "stub";

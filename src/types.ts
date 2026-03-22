@@ -86,6 +86,19 @@ export interface CellProgress {
   attempt?: number;
 }
 
+// App state machine
+export type AppState = "input" | "decomposing" | "generating" | "ready";
+
+// Streaming phase (decompose vs manifest)
+export type StreamPhase = "decompose" | "manifest" | null;
+
+// Chat message for sidebar
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  phase?: StreamPhase;
+}
+
 // WebSocket message types
 export interface WsMessage {
   type: string;
