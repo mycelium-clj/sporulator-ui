@@ -11,7 +11,7 @@ import {
   exportManifest, getReplProjectPath,
   listSessions, getSession, clearSession,
 } from "./lib/api";
-import { extractManifestEdn } from "./lib/edn";
+import { extractManifestEdn, parseManifestEdn } from "./lib/edn";
 import type { AppState, Cell, CellProgress, ChatMessage, StreamPhase, WsMessage } from "./types";
 import type { CellNodeData } from "./lib/graph";
 
@@ -232,6 +232,43 @@ function App() {
     });
   }, [ensureWs, sendMessage, sessionId]);
 
+  // Approve graph → kick off cell implementation via orchestrator
+  const handleApproveGraph = useCallback(() => {
+    if (!manifestBody) return;
+    const ws = ensureWs();
+
+    // Extract cell briefs from the parsed manifest
+    const raw = parseManifestEdn(manifestBody) as Record<string, unknown> | null;
+    if (!raw?.cells) return;
+
+    const leaves = Object.entries(raw.cells as Record<string, Record<string, unknown>>).map(
+      ([stepName, cellDef]) => {
+        const schema = cellDef.schema as Record<string, unknown> | null;
+        return {
+          cell_id: (cellDef.id as string) || stepName,
+          step_name: stepName,
+          doc: (cellDef.doc as string) || "",
+          input_schema: schema?.input ? JSON.stringify(schema.input) : "{}",
+          output_schema: schema?.output ? JSON.stringify(schema.output) : "{}",
+          requires: (cellDef.requires as string[]) || [],
+        };
+      }
+    );
+
+    // Mark all cells as pending
+    const progress: Record<string, CellProgress> = {};
+    for (const leaf of leaves) {
+      progress[leaf.cell_id] = { status: "stub", message: "Waiting for implementation" };
+    }
+    setCellProgress(progress);
+
+    sendMessage(ws, "orchestrate", {
+      session_id: sessionId,
+      leaves,
+      base_ns: "app",
+    });
+  }, [manifestBody, ensureWs, sendMessage, sessionId]);
+
   const handleClearContext = useCallback(() => {
     clearSession(sessionId).catch(() => {});
     setChatMessages([]);
@@ -288,12 +325,31 @@ function App() {
           )}
 
           {showGraph && (
-            <GraphCanvas
-              manifestBody={manifestBody}
-              cells={cells}
-              cellProgress={cellProgress}
-              onNodeClick={handleNodeClick}
-            />
+            <div className="flex-1 flex flex-col">
+              {/* Approve bar — show when no cells are being implemented yet */}
+              {Object.keys(cellProgress).length === 0 && (
+                <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-bg-panel)]">
+                  <span className="text-sm text-[var(--color-text)]">
+                    Review the workflow graph, then approve to start cell implementation.
+                  </span>
+                  <button
+                    onClick={handleApproveGraph}
+                    disabled={streaming}
+                    className="px-4 py-2 bg-[var(--color-accent)]/20 text-[var(--color-accent)] rounded-lg text-sm font-medium hover:bg-[var(--color-accent)]/30 disabled:opacity-30 transition-colors whitespace-nowrap"
+                  >
+                    Approve &amp; Implement
+                  </button>
+                </div>
+              )}
+              <div className="flex-1">
+                <GraphCanvas
+                  manifestBody={manifestBody}
+                  cells={cells}
+                  cellProgress={cellProgress}
+                  onNodeClick={handleNodeClick}
+                />
+              </div>
+            </div>
           )}
         </div>
 
