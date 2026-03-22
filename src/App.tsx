@@ -153,10 +153,17 @@ function App() {
     } else if (msg.type === "orchestrator_event") {
       // Backend sends kebab-case keys (cell-id), handle both formats
       const evt = msg.payload as Record<string, unknown>;
-      const rawCellId = (evt["cell-id"] || evt["cell_id"]) as string | undefined;
       const phase = evt.phase as string | undefined;
       const status = evt.status as string | undefined;
-      console.log("[WS] orchestrator_event", { rawCellId, phase, status, keys: Object.keys(evt) });
+      // Find cell-id key (backend sends kebab-case)
+      let rawCellId: string | undefined;
+      for (const key of Object.keys(evt)) {
+        if (key === "cell-id" || key === "cell_id") {
+          rawCellId = evt[key] as string;
+          break;
+        }
+      }
+      console.log("[WS] orchestrator_event", phase, status, "cell:", rawCellId);
       if (rawCellId) {
         const cellId = normCellId(rawCellId);
         console.log("[WS] setting cellProgress", cellId, "→", mapOrchestratorStatus(phase, status));
