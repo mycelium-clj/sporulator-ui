@@ -33,6 +33,10 @@ export function GraphCanvas({ manifestBody, cells, cellProgress, onNodeClick }: 
 
   // Merge cellProgress into node data
   const mergedNodes = useMemo(() => {
+    if (Object.keys(cellProgress).length > 0) {
+      console.log("[GraphCanvas] cellProgress keys:", Object.keys(cellProgress));
+      console.log("[GraphCanvas] node cellIds:", baseNodes.map(n => (n.data as CellNodeData).cellId));
+    }
     return baseNodes.map((node) => {
       const d = node.data as CellNodeData;
       const progress = cellProgress[d.cellId];

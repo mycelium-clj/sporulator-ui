@@ -18,7 +18,8 @@ import type { CellNodeData } from "./lib/graph";
 const SESSION_ID_KEY = "sporulator:sessionId";
 
 /** Normalize cell ID: strip leading colon so ":order/validate" → "order/validate" */
-function normCellId(id: string): string {
+function normCellId(id: string | null | undefined): string {
+  if (!id) return "";
   return id.startsWith(":") ? id.slice(1) : id;
 }
 
@@ -155,8 +156,10 @@ function App() {
       const rawCellId = (evt["cell-id"] || evt["cell_id"]) as string | undefined;
       const phase = evt.phase as string | undefined;
       const status = evt.status as string | undefined;
+      console.log("[WS] orchestrator_event", { rawCellId, phase, status, keys: Object.keys(evt) });
       if (rawCellId) {
         const cellId = normCellId(rawCellId);
+        console.log("[WS] setting cellProgress", cellId, "→", mapOrchestratorStatus(phase, status));
         setCellProgress((prev) => ({
           ...prev,
           [cellId]: {
@@ -179,16 +182,18 @@ function App() {
       }
     } else if (msg.type === "orchestrator_complete" || msg.type === "orchestrator_error") {
       const payload = msg.payload as Record<string, unknown>;
-      const passed = (payload.passed || []) as string[];
-      const failed = (payload.failed || []) as string[];
-      // Mark all passed cells as implemented
+      const passed = ((payload.passed || []) as unknown[]).filter(Boolean).map(String);
+      const failed = ((payload.failed || []) as unknown[]).filter(Boolean).map(String);
+      console.log("[WS]", msg.type, { passed, failed });
       setCellProgress((prev) => {
         const updated = { ...prev };
         for (const id of passed) {
-          updated[normCellId(id)] = { status: "implemented", message: "Complete" };
+          const nid = normCellId(id);
+          if (nid) updated[nid] = { status: "implemented", message: "Complete" };
         }
         for (const id of failed) {
-          updated[normCellId(id)] = { status: "failing", message: "Failed" };
+          const nid = normCellId(id);
+          if (nid) updated[nid] = { status: "failing", message: "Failed" };
         }
         return updated;
       });
