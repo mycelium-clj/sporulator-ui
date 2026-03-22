@@ -151,22 +151,11 @@ function App() {
       setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg.payload}` }]);
       setStreaming(false);
     } else if (msg.type === "orchestrator_event") {
-      // Backend sends kebab-case keys (cell-id), handle both formats
       const evt = msg.payload as Record<string, unknown>;
+      const cellId = normCellId(evt.cell_id as string);
       const phase = evt.phase as string | undefined;
       const status = evt.status as string | undefined;
-      // Find cell-id key (backend sends kebab-case)
-      let rawCellId: string | undefined;
-      for (const key of Object.keys(evt)) {
-        if (key === "cell-id" || key === "cell_id") {
-          rawCellId = evt[key] as string;
-          break;
-        }
-      }
-      console.log("[WS] orchestrator_event", phase, status, "cell:", rawCellId);
-      if (rawCellId) {
-        const cellId = normCellId(rawCellId);
-        console.log("[WS] setting cellProgress", cellId, "→", mapOrchestratorStatus(phase, status));
+      if (cellId) {
         setCellProgress((prev) => ({
           ...prev,
           [cellId]: {
@@ -178,9 +167,8 @@ function App() {
       }
     } else if (msg.type === "cell_result") {
       const result = msg.payload as Record<string, unknown>;
-      const rawCellId = (result["cell-id"] || result["cell_id"]) as string | undefined;
-      if (rawCellId) {
-        const cellId = normCellId(rawCellId);
+      const cellId = normCellId(result.cell_id as string);
+      if (cellId) {
         setCellProgress((prev) => ({
           ...prev,
           [cellId]: { status: "implemented", message: "Implementation complete" },
@@ -189,19 +177,12 @@ function App() {
       }
     } else if (msg.type === "orchestrator_complete" || msg.type === "orchestrator_error") {
       const payload = msg.payload as Record<string, unknown>;
-      const passed = ((payload.passed || []) as unknown[]).filter(Boolean).map(String);
-      const failed = ((payload.failed || []) as unknown[]).filter(Boolean).map(String);
-      console.log("[WS]", msg.type, { passed, failed });
+      const passed = ((payload.passed || []) as string[]).map(normCellId).filter(Boolean);
+      const failed = ((payload.failed || []) as string[]).map(normCellId).filter(Boolean);
       setCellProgress((prev) => {
         const updated = { ...prev };
-        for (const id of passed) {
-          const nid = normCellId(id);
-          if (nid) updated[nid] = { status: "implemented", message: "Complete" };
-        }
-        for (const id of failed) {
-          const nid = normCellId(id);
-          if (nid) updated[nid] = { status: "failing", message: "Failed" };
-        }
+        for (const id of passed) updated[id] = { status: "implemented", message: "Complete" };
+        for (const id of failed) updated[id] = { status: "failing", message: "Failed" };
         return updated;
       });
       refreshCells();
