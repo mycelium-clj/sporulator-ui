@@ -105,7 +105,6 @@ function App() {
       if (phase === "decompose") {
         setStepsContent((prev) => prev + payload.chunk);
         setStreamPhase("decompose");
-        if (appState !== "decomposing") setAppState("decomposing");
       } else if (phase === "manifest") {
         setStreamContent((prev) => prev + payload.chunk);
         setStreamPhase("manifest");
@@ -114,20 +113,21 @@ function App() {
         // Follow-up (no phase) — regular graph_chat response
         setStreamContent((prev) => prev + payload.chunk);
       }
+    } else if (msg.type === "decompose_end" && msg.id === sessionId) {
+      // Decomposition complete — pause for user review
+      const content = (msg.payload as { content: string }).content;
+      setStepsContent(content);
+      setStreaming(false);
+      setStreamPhase(null);
+      setAppState("decomposing");
+      setChatMessages((prev) => [...prev, { role: "assistant", content }]);
     } else if (msg.type === "stream_end" && msg.id === sessionId) {
       const payload = msg.payload as { content: string; steps?: string };
       setStreaming(false);
       setStreamPhase(null);
 
-      // Save steps if provided
-      if (payload.steps) {
-        setStepsContent(payload.steps);
-      }
-
       const content = payload.content;
       setStreamContent(content);
-
-      // Add assistant message to chat
       setChatMessages((prev) => [...prev, { role: "assistant", content }]);
 
       const ednBody = extractManifestEdn(content);
@@ -136,12 +136,6 @@ function App() {
         persistManifest(ednBody);
         refreshCells();
         setAppState("ready");
-      }
-    } else if (msg.type === "design_event" && msg.id === sessionId) {
-      const evt = msg.payload as { event_type: string; steps?: string };
-      if (evt.event_type === "steps_complete" && evt.steps) {
-        setStepsContent(evt.steps);
-        setAppState("generating");
       }
     } else if (msg.type === "stream_error" && (!msg.id || msg.id === sessionId)) {
       setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg.payload}` }]);
@@ -194,7 +188,7 @@ function App() {
     else ws.addEventListener("open", send, { once: true });
   }, []);
 
-  // Initial design: uses graph_design (two-phase: decompose then manifest)
+  // Step 1: decompose requirements into steps (pauses for review)
   const handleSubmitRequirements = useCallback((requirements: string) => {
     setStreamContent("");
     setStepsContent("");
@@ -204,7 +198,24 @@ function App() {
     setChatMessages((prev) => [...prev, { role: "user", content: requirements }]);
 
     const ws = ensureWs();
-    sendMessage(ws, "graph_design", { session_id: sessionId, message: requirements });
+    sendMessage(ws, "graph_decompose", { session_id: sessionId, message: requirements });
+  }, [ensureWs, sendMessage, sessionId]);
+
+  // Step 2: approve steps (with optional feedback) → build manifest
+  const handleApproveSteps = useCallback((feedback?: string) => {
+    setStreamContent("");
+    setStreaming(true);
+    setStreamPhase("manifest");
+    setAppState("generating");
+    if (feedback) {
+      setChatMessages((prev) => [...prev, { role: "user", content: feedback }]);
+    }
+
+    const ws = ensureWs();
+    sendMessage(ws, "graph_approve", {
+      session_id: sessionId,
+      feedback: feedback || "",
+    });
   }, [ensureWs, sendMessage, sessionId]);
 
   // Follow-up: uses graph_chat (single-phase, sends current manifest)
@@ -247,7 +258,11 @@ function App() {
           )}
 
           {showSteps && (
-            <StepsPreview content={stepsContent} isStreaming={streaming} />
+            <StepsPreview
+              content={stepsContent}
+              isStreaming={streaming}
+              onApprove={handleApproveSteps}
+            />
           )}
 
           {showGenerating && (
@@ -284,19 +299,19 @@ function App() {
 
         {/* Right sidebar */}
         <div className="w-96 border-l border-border bg-bg-panel shrink-0 flex flex-col">
-          {appState === "ready" ? (
+          {appState !== "input" ? (
             <DetailPanel
               messages={chatMessages}
               streaming={streaming}
-              streamContent={streamContent}
+              streamContent={
+                appState === "decomposing" ? stepsContent
+                : appState === "generating" ? streamContent
+                : streamContent
+              }
               onSendMessage={handleFollowUp}
               onClear={handleClearContext}
             />
-          ) : appState === "input" ? null : (
-            <div className="flex-1 flex items-center justify-center text-text/40 text-sm">
-              {streaming ? "Agent is working..." : ""}
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
 
