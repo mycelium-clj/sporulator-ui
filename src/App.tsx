@@ -145,25 +145,28 @@ function App() {
       setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg.payload}` }]);
       setStreaming(false);
     } else if (msg.type === "orchestrator_event") {
-      const evt = msg.payload as {
-        phase?: string; cell_id?: string; status?: string; message?: string; attempt?: number;
-      };
-      if (evt.cell_id) {
+      // Backend sends kebab-case keys (cell-id), handle both formats
+      const evt = msg.payload as Record<string, unknown>;
+      const cellId = (evt["cell-id"] || evt["cell_id"]) as string | undefined;
+      const phase = evt.phase as string | undefined;
+      const status = evt.status as string | undefined;
+      if (cellId) {
         setCellProgress((prev) => ({
           ...prev,
-          [evt.cell_id!]: {
-            status: mapOrchestratorStatus(evt.phase, evt.status),
-            message: evt.message || "",
-            attempt: evt.attempt,
+          [cellId]: {
+            status: mapOrchestratorStatus(phase, status),
+            message: (evt.message as string) || "",
+            attempt: evt.attempt as number | undefined,
           },
         }));
       }
     } else if (msg.type === "cell_result") {
-      const result = msg.payload as { cell_id?: string };
-      if (result.cell_id) {
+      const result = msg.payload as Record<string, unknown>;
+      const cellId = (result["cell-id"] || result["cell_id"] || result["cell_id"]) as string | undefined;
+      if (cellId) {
         setCellProgress((prev) => ({
           ...prev,
-          [result.cell_id!]: { status: "implemented", message: "Implementation complete" },
+          [cellId]: { status: "implemented", message: "Implementation complete" },
         }));
         refreshCells();
       }
