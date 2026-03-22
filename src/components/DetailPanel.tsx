@@ -75,15 +75,21 @@ export function DetailPanel({
         ))}
 
         {/* Current streaming response */}
-        {streaming && streamContent && (
+        {streaming && (
           <div className="text-sm rounded-lg px-3 py-2 bg-[var(--color-bg-panel)]">
             <div className="text-[10px] uppercase tracking-wider text-[var(--color-text)]/40 mb-1 flex items-center gap-1">
               Agent
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
             </div>
-            <div className="prose prose-sm prose-invert max-w-none">
-              <Markdown>{streamContent}</Markdown>
-            </div>
+            {streamContent ? (
+              <div className="prose prose-sm prose-invert max-w-none">
+                <Markdown>{streamContent}</Markdown>
+              </div>
+            ) : (
+              <div className="text-[var(--color-text)]/30 text-xs italic">
+                Thinking...
+              </div>
+            )}
           </div>
         )}
 
