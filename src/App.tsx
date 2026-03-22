@@ -325,31 +325,29 @@ function App() {
           )}
 
           {showGraph && (
-            <div className="flex-1 flex flex-col">
+            <>
               {/* Approve bar — show when no cells are being implemented yet */}
               {Object.keys(cellProgress).length === 0 && (
-                <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-bg-panel)]">
+                <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-bg-panel)] shrink-0">
                   <span className="text-sm text-[var(--color-text)]">
                     Review the workflow graph, then approve to start cell implementation.
                   </span>
                   <button
                     onClick={handleApproveGraph}
                     disabled={streaming}
-                    className="px-4 py-2 bg-[var(--color-accent)]/20 text-[var(--color-accent)] rounded-lg text-sm font-medium hover:bg-[var(--color-accent)]/30 disabled:opacity-30 transition-colors whitespace-nowrap"
+                    className="px-4 py-2 bg-[var(--color-accent)]/20 text-[var(--color-accent)] rounded-lg text-sm font-medium hover:bg-[var(--color-accent)]/30 disabled:opacity-30 transition-colors whitespace-nowrap ml-4"
                   >
                     Approve &amp; Implement
                   </button>
                 </div>
               )}
-              <div className="flex-1">
-                <GraphCanvas
-                  manifestBody={manifestBody}
-                  cells={cells}
-                  cellProgress={cellProgress}
-                  onNodeClick={handleNodeClick}
-                />
-              </div>
-            </div>
+              <GraphCanvas
+                manifestBody={manifestBody}
+                cells={cells}
+                cellProgress={cellProgress}
+                onNodeClick={handleNodeClick}
+              />
+            </>
           )}
         </div>
 
