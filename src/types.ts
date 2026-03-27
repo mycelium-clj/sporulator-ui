@@ -77,13 +77,26 @@ export type CellStatus =
   | "no-schema"
   | "implementing"
   | "testing"
-  | "fixing";
+  | "fixing"
+  | "test_generating"
+  | "test_ready"
+  | "test_approved"
+  | "test_error"
+  | "impl_ready"
+  | "impl_error"
+  | "done";
 
 // Per-cell progress info from orchestrator_event messages
 export interface CellProgress {
   status: CellStatus;
   message: string;
   attempt?: number;
+  runId?: string;
+  testCode?: string;
+  testBody?: string;
+  implSource?: string;
+  testOutput?: string;
+  testsPassed?: boolean;
 }
 
 // App state machine

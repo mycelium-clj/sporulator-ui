@@ -4,28 +4,46 @@ import type { CellNodeData } from "../lib/graph";
 
 const STATUS_COLORS: Record<string, string> = {
   implemented: "bg-status-green",
+  done: "bg-status-green",
   stub: "bg-status-yellow",
   failing: "bg-status-red",
   "no-schema": "bg-status-gray",
   implementing: "bg-violet-500",
   testing: "bg-blue-500",
   fixing: "bg-orange-500",
+  test_generating: "bg-blue-400",
+  test_ready: "bg-amber-400",
+  test_approved: "bg-blue-500",
+  test_error: "bg-status-red",
+  impl_ready: "bg-amber-500",
+  impl_error: "bg-status-red",
 };
 
 const STATUS_BORDERS: Record<string, string> = {
   implemented: "border-status-green/30",
+  done: "border-status-green/30",
   stub: "border-status-yellow/30",
   failing: "border-status-red/30",
   "no-schema": "border-border",
   implementing: "border-violet-500/30",
   testing: "border-blue-500/30",
   fixing: "border-orange-500/30",
+  test_generating: "border-blue-400/30",
+  test_ready: "border-amber-400/40",
+  test_approved: "border-blue-500/30",
+  test_error: "border-status-red/30",
+  impl_ready: "border-amber-500/40",
+  impl_error: "border-status-red/30",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   implementing: "implementing...",
   testing: "testing...",
   fixing: "fixing...",
+  test_generating: "generating tests...",
+  test_ready: "tests ready for review",
+  test_approved: "tests approved",
+  impl_ready: "ready for review",
 };
 
 function schemaKeys(schema: Record<string, unknown> | null | undefined): string {
@@ -37,7 +55,10 @@ function schemaKeys(schema: Record<string, unknown> | null | undefined): string 
 }
 
 const isActive = (status: string) =>
-  status === "implementing" || status === "testing" || status === "fixing";
+  status === "implementing" || status === "testing" || status === "fixing" || status === "test_generating";
+
+const needsReview = (status: string) =>
+  status === "test_ready" || status === "impl_ready";
 
 export function CellNode({ data }: NodeProps) {
   const d = data as unknown as CellNodeData;
@@ -51,7 +72,7 @@ export function CellNode({ data }: NodeProps) {
 
   return (
     <div
-      className={`bg-bg-node border ${borderClass} rounded-lg px-3 py-2 min-w-[200px] max-w-[260px] shadow-lg hover:border-border-hover transition-colors ${active ? "ring-1 ring-violet-500/20" : ""}`}
+      className={`bg-bg-node border ${borderClass} rounded-lg px-3 py-2 min-w-[200px] max-w-[260px] shadow-lg hover:border-border-hover transition-colors ${active ? "ring-1 ring-violet-500/20" : ""} ${needsReview(d.status) ? "ring-2 ring-amber-400/40 animate-pulse" : ""}`}
     >
       <Handle type="target" position={Position.Top} className="!bg-accent !w-2 !h-2 !border-0" />
 
@@ -78,7 +99,15 @@ export function CellNode({ data }: NodeProps) {
         <p className="text-text/50 text-[10px] truncate mb-1">{progressMsg}</p>
       )}
 
-      {!active && d.doc && (
+      {needsReview(d.status) && (
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-xs text-amber-400 font-medium truncate">
+            {STATUS_LABELS[d.status]}
+          </span>
+        </div>
+      )}
+
+      {!active && !needsReview(d.status) && d.doc && (
         <p className="text-text text-xs truncate mb-1">{d.doc}</p>
       )}
 

@@ -23,6 +23,41 @@ export const listCells = () => get<Cell[]>("/cells");
 export const getCell = (id: string) => get<Cell>(`/cell?id=${encodeURIComponent(id)}`);
 export const getCellHistory = (id: string) => get<Cell[]>(`/cell/history?id=${encodeURIComponent(id)}`);
 export const getCellTests = (id: string) => get<TestResult[]>(`/cell/tests?id=${encodeURIComponent(id)}`);
+export const saveCell = (cell: { id: string; handler: string; schema?: string; doc?: string; requires?: string }) =>
+  post<{ ID: string; Version: number }>("/cell", cell);
+
+// Test contracts
+export interface TestContract {
+  ID: number;
+  RunID: string;
+  CellID: string;
+  TestCode: string;
+  TestBody: string;
+  ReviewNotes: string;
+  Status: string;
+  Revision: number;
+  Feedback: string;
+  ApprovedAt: string;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
+export const getTestContract = (cellId: string, runId?: string) =>
+  get<TestContract>(`/cell/test-contract?id=${encodeURIComponent(cellId)}${runId ? `&run_id=${encodeURIComponent(runId)}` : ""}`);
+
+// Run tests
+export interface TestRunResult {
+  status: string;
+  passed: boolean;
+  summary?: { test: number; pass: number; fail: number; error: number };
+  output: string;
+  error?: string;
+}
+export const runCellTests = (handler: string, testCode: string) =>
+  post<TestRunResult>("/cell/run-tests", { handler, "test-code": testCode });
+
+// Format
+export const formatCode = (code: string) =>
+  post<{ formatted: string }>("/format", { code });
 
 // Manifests
 export const listManifests = () => get<ManifestSummary[]>("/manifests");

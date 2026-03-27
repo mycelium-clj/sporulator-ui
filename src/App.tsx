@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Routes, Route, useNavigate } from "react-router-dom";
 import { GraphCanvas } from "./components/GraphCanvas";
 import { DetailPanel } from "./components/DetailPanel";
 import { StepsPreview } from "./components/StepsPreview";
 import { StatusBar } from "./components/StatusBar";
 import { RequirementsInput } from "./components/RequirementsInput";
-import { CellModal } from "./components/CellModal";
+import { CellPage } from "./components/CellPage";
 import {
   connectWs, sendWs,
   listManifests, getManifest, listCells,
@@ -32,11 +33,12 @@ function getOrCreateSessionId(): string {
 }
 
 function App() {
+  const navigate = useNavigate();
   const [appState, setAppState] = useState<AppState>("input");
-  const [modalCell, setModalCell] = useState<{ step: string; cellId: string; nodeData: CellNodeData } | null>(null);
   const [manifestBody, setManifestBody] = useState<string | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [cellProgress, setCellProgress] = useState<Record<string, CellProgress>>({});
+  const [runId, setRunId] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [streamContent, setStreamContent] = useState("");
   const [stepsContent, setStepsContent] = useState("");
@@ -150,15 +152,38 @@ function App() {
     } else if (msg.type === "error") {
       setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${msg.payload}` }]);
       setStreaming(false);
+    } else if (msg.type === "orchestration_started") {
+      const payload = msg.payload as Record<string, unknown>;
+      setRunId((payload.run_id as string) || null);
     } else if (msg.type === "orchestrator_event") {
       const evt = msg.payload as Record<string, unknown>;
       const cellId = normCellId(evt.cell_id as string);
       const phase = evt.phase as string | undefined;
       const status = evt.status as string | undefined;
-      if (cellId) {
+      if (cellId && phase === "cell_status") {
+        // Interactive orchestration: cell_status events carry full state
         setCellProgress((prev) => ({
           ...prev,
           [cellId]: {
+            ...prev[cellId],
+            status: (status || "stub") as CellProgress["status"],
+            message: (evt.message as string) || "",
+            attempt: evt.attempt as number | undefined,
+            runId: evt.run_id as string | undefined,
+            testCode: (evt.test_code as string) ?? prev[cellId]?.testCode,
+            testBody: (evt.test_body as string) ?? prev[cellId]?.testBody,
+            implSource: (evt.source as string) ?? prev[cellId]?.implSource,
+            testOutput: (evt.test_output as string) ?? prev[cellId]?.testOutput,
+            testsPassed: evt.tests_passed != null ? (evt.tests_passed as boolean) : prev[cellId]?.testsPassed,
+          },
+        }));
+        if (status === "done") refreshCells();
+      } else if (cellId) {
+        // Legacy orchestrator events (auto-approve path)
+        setCellProgress((prev) => ({
+          ...prev,
+          [cellId]: {
+            ...prev[cellId],
             status: mapOrchestratorStatus(phase, status),
             message: (evt.message as string) || "",
             attempt: evt.attempt as number | undefined,
@@ -171,7 +196,7 @@ function App() {
       if (cellId) {
         setCellProgress((prev) => ({
           ...prev,
-          [cellId]: { status: "implemented", message: "Implementation complete" },
+          [cellId]: { ...prev[cellId], status: "implemented", message: "Implementation complete" },
         }));
         refreshCells();
       }
@@ -181,8 +206,8 @@ function App() {
       const failed = ((payload.failed || []) as string[]).map(normCellId).filter(Boolean);
       setCellProgress((prev) => {
         const updated = { ...prev };
-        for (const id of passed) updated[id] = { status: "implemented", message: "Complete" };
-        for (const id of failed) updated[id] = { status: "failing", message: "Failed" };
+        for (const id of passed) updated[id] = { ...updated[id], status: "done", message: "Complete" };
+        for (const id of failed) updated[id] = { ...updated[id], status: "failing", message: "Failed" };
         return updated;
       });
       refreshCells();
@@ -274,19 +299,23 @@ function App() {
       }
     );
 
-    // Mark all cells as pending
+    // Write manifest to disk on approval
+    persistManifest(manifestBody);
+
+    // Mark all cells as test_generating
     const progress: Record<string, CellProgress> = {};
     for (const leaf of leaves) {
-      progress[leaf.cell_id] = { status: "stub", message: "Waiting for implementation" };
+      progress[leaf.cell_id] = { status: "test_generating", message: "Generating tests..." };
     }
     setCellProgress(progress);
 
-    sendMessage(ws, "orchestrate", {
+    sendMessage(ws, "start_orchestration", {
       session_id: sessionId,
       leaves,
       base_ns: "app",
+      manifest_id: (raw.id as string) || "",
     });
-  }, [manifestBody, ensureWs, sendMessage, sessionId]);
+  }, [manifestBody, ensureWs, sendMessage, sessionId, persistManifest]);
 
   const handleClearContext = useCallback(() => {
     clearSession(sessionId).catch(() => {});
@@ -295,16 +324,53 @@ function App() {
     setStepsContent("");
   }, [sessionId]);
 
-  const handleNodeClick = useCallback((_stepName: string, cellId: string, nodeData: CellNodeData) => {
-    setModalCell({ step: _stepName, cellId, nodeData });
-  }, []);
+  const handleNodeClick = useCallback((_stepName: string, cellId: string, _nodeData: CellNodeData) => {
+    navigate(`/cell/${encodeURIComponent(cellId)}`);
+  }, [navigate]);
+
+  // ── Interactive review callbacks ────────────────────────────
+  const handleApproveTests = useCallback((cellId: string) => {
+    if (!runId) return;
+    const ws = ensureWs();
+    sendMessage(ws, "approve_tests", { session_id: sessionId, run_id: runId, cell_id: cellId });
+  }, [runId, ensureWs, sendMessage, sessionId]);
+
+  const handleRejectTests = useCallback((cellId: string, feedback: string) => {
+    if (!runId) return;
+    const ws = ensureWs();
+    sendMessage(ws, "reject_tests", { session_id: sessionId, run_id: runId, cell_id: cellId, feedback });
+  }, [runId, ensureWs, sendMessage, sessionId]);
+
+  const handleSaveTests = useCallback((cellId: string, testCode: string) => {
+    if (!runId) return;
+    const ws = ensureWs();
+    sendMessage(ws, "save_tests", { session_id: sessionId, run_id: runId, cell_id: cellId, test_code: testCode });
+  }, [runId, ensureWs, sendMessage, sessionId]);
+
+  const handleApproveImpl = useCallback((cellId: string) => {
+    if (!runId) return;
+    const ws = ensureWs();
+    sendMessage(ws, "approve_impl", { session_id: sessionId, run_id: runId, cell_id: cellId });
+  }, [runId, ensureWs, sendMessage, sessionId]);
+
+  const handleRejectImpl = useCallback((cellId: string, feedback: string) => {
+    if (!runId) return;
+    const ws = ensureWs();
+    sendMessage(ws, "reject_impl", { session_id: sessionId, run_id: runId, cell_id: cellId, feedback });
+  }, [runId, ensureWs, sendMessage, sessionId]);
+
+  const handleSaveImpl = useCallback((cellId: string, source: string) => {
+    if (!runId) return;
+    const ws = ensureWs();
+    sendMessage(ws, "save_impl", { session_id: sessionId, run_id: runId, cell_id: cellId, source });
+  }, [runId, ensureWs, sendMessage, sessionId]);
 
   // Determine what shows in the main area
   const showGraph = appState === "ready" && manifestBody;
   const showSteps = appState === "decomposing";
   const showGenerating = appState === "generating";
 
-  return (
+  const graphPage = (
     <div className="flex flex-col h-screen bg-bg">
       <div className="flex flex-1 overflow-hidden">
         {/* Main area */}
@@ -389,17 +455,31 @@ function App() {
       </div>
 
       <StatusBar />
-
-      {modalCell && (
-        <CellModal
-          stepName={modalCell.step}
-          cellId={modalCell.cellId}
-          nodeData={modalCell.nodeData}
-          progress={cellProgress[modalCell.cellId] || null}
-          onClose={() => setModalCell(null)}
-        />
-      )}
     </div>
+  );
+
+  const cellPage = (
+    <CellPage
+      cellProgress={cellProgress}
+      onRegenerate={(_cellId: string, brief: Record<string, unknown>) => {
+        const ws = ensureWs();
+        sendMessage(ws, "cell_implement", { session_id: sessionId, brief });
+      }}
+      onCellSaved={() => refreshCells()}
+      onApproveTests={handleApproveTests}
+      onRejectTests={handleRejectTests}
+      onSaveTests={handleSaveTests}
+      onApproveImpl={handleApproveImpl}
+      onRejectImpl={handleRejectImpl}
+      onSaveImpl={handleSaveImpl}
+    />
+  );
+
+  return (
+    <Routes>
+      <Route path="/" element={graphPage} />
+      <Route path="/cell/:cellId" element={cellPage} />
+    </Routes>
   );
 }
 
