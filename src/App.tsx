@@ -418,8 +418,8 @@ function App() {
 
           {showGraph && (
             <>
-              {/* Approve bar — show when no cells are being implemented yet */}
-              {Object.keys(cellProgress).length === 0 && (
+              {/* Approve bar — show when no cells are being implemented and not all already done */}
+              {Object.keys(cellProgress).length === 0 && !cells.every(c => c.Handler && c.Handler !== "") && (
                 <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-bg-panel)] shrink-0">
                   <span className="text-sm text-[var(--color-text)]">
                     Review the workflow graph, then approve to start cell implementation.
@@ -430,6 +430,42 @@ function App() {
                     className="px-4 py-2 bg-[var(--color-accent)]/20 text-[var(--color-accent)] rounded-lg text-sm font-medium hover:bg-[var(--color-accent)]/30 disabled:opacity-30 transition-colors whitespace-nowrap ml-4"
                   >
                     Approve &amp; Implement
+                  </button>
+                </div>
+              )}
+              {/* Approve All Tests bar — show when any cells have test_ready status */}
+              {Object.values(cellProgress).some(p => p.status === "test_ready") && (
+                <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between bg-amber-500/5 shrink-0">
+                  <span className="text-sm text-amber-400">
+                    {Object.values(cellProgress).filter(p => p.status === "test_ready").length} cell(s) have tests ready for review
+                  </span>
+                  <button
+                    onClick={() => {
+                      Object.entries(cellProgress).forEach(([cellId, p]) => {
+                        if (p.status === "test_ready") handleApproveTests(cellId);
+                      });
+                    }}
+                    className="px-4 py-2 bg-status-green/20 text-status-green rounded-lg text-sm font-medium hover:bg-status-green/30 transition-colors whitespace-nowrap ml-4"
+                  >
+                    Approve All Tests
+                  </button>
+                </div>
+              )}
+              {/* Approve All Implementations bar */}
+              {Object.values(cellProgress).some(p => p.status === "impl_ready") && (
+                <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between bg-amber-500/5 shrink-0">
+                  <span className="text-sm text-amber-400">
+                    {Object.values(cellProgress).filter(p => p.status === "impl_ready").length} cell(s) have implementations ready for review
+                  </span>
+                  <button
+                    onClick={() => {
+                      Object.entries(cellProgress).forEach(([cellId, p]) => {
+                        if (p.status === "impl_ready") handleApproveImpl(cellId);
+                      });
+                    }}
+                    className="px-4 py-2 bg-status-green/20 text-status-green rounded-lg text-sm font-medium hover:bg-status-green/30 transition-colors whitespace-nowrap ml-4"
+                  >
+                    Approve All Implementations
                   </button>
                 </div>
               )}
