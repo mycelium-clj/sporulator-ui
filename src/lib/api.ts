@@ -26,6 +26,19 @@ export const getCellTests = (id: string) => get<TestResult[]>(`/cell/tests?id=${
 export const saveCell = (cell: { id: string; handler: string; schema?: string; doc?: string; requires?: string }) =>
   post<{ ID: string; Version: number }>("/cell", cell);
 
+// Resources
+export interface ResourceInfo {
+  key: string;
+  resource_key: string;
+  config: string;
+}
+export interface ResourcesResponse {
+  available: ResourceInfo[];
+  usage: Record<string, string[]>;
+  missing: string[];
+}
+export const getResources = () => get<ResourcesResponse>("/resources");
+
 // Test contracts
 export interface TestContract {
   ID: number;

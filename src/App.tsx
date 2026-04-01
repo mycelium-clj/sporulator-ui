@@ -11,7 +11,9 @@ import {
   listManifests, getManifest, listCells,
   exportManifest, getReplProjectPath,
   listSessions, getSession, clearSession,
+  getResources,
 } from "./lib/api";
+import type { ResourcesResponse } from "./lib/api";
 import { extractManifestEdn, parseManifestEdn } from "./lib/edn";
 import type { AppState, Cell, CellProgress, ChatMessage, StreamPhase, WsMessage } from "./types";
 import type { CellNodeData } from "./lib/graph";
@@ -39,6 +41,7 @@ function App() {
   const [cells, setCells] = useState<Cell[]>([]);
   const [cellProgress, setCellProgress] = useState<Record<string, CellProgress>>({});
   const [runId, setRunId] = useState<string | null>(null);
+  const [resources, setResources] = useState<ResourcesResponse | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [streamContent, setStreamContent] = useState("");
   const [stepsContent, setStepsContent] = useState("");
@@ -66,6 +69,10 @@ function App() {
     async function init() {
       getReplProjectPath()
         .then(({ path }) => { if (path) projectPathRef.current = path; })
+        .catch(() => {});
+
+      getResources()
+        .then(setResources)
         .catch(() => {});
 
       // Try to restore manifest from store
@@ -430,6 +437,7 @@ function App() {
                 manifestBody={manifestBody}
                 cells={cells}
                 cellProgress={cellProgress}
+                availableResources={resources?.available.map(r => r.resource_key)}
                 onNodeClick={handleNodeClick}
               />
             </>

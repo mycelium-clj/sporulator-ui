@@ -127,8 +127,18 @@ export function CellNode({ data }: NodeProps) {
       )}
 
       {d.requires.length > 0 && (
-        <div className="text-xs text-text/40 mt-1 truncate">
-          {d.requires.map((r) => `:${r}`).join(" ")}
+        <div className="flex gap-1 mt-1 flex-wrap">
+          {d.requires.map((r) => {
+            const available = (d as Record<string, unknown>).availableResources as string[] | undefined;
+            const isAvailable = available ? available.includes(r) : true;
+            return (
+              <span key={r} className={`text-[10px] px-1 rounded font-mono ${
+                isAvailable ? "bg-status-green/10 text-status-green/70" : "bg-status-red/10 text-status-red/70"
+              }`}>
+                :{r}
+              </span>
+            );
+          })}
         </div>
       )}
 

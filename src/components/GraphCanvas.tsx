@@ -22,10 +22,11 @@ interface GraphCanvasProps {
   manifestBody: string;
   cells: Cell[];
   cellProgress: Record<string, CellProgress>;
+  availableResources?: string[];
   onNodeClick?: (stepName: string, cellId: string, nodeData: CellNodeData) => void;
 }
 
-export function GraphCanvas({ manifestBody, cells, cellProgress, onNodeClick }: GraphCanvasProps) {
+export function GraphCanvas({ manifestBody, cells, cellProgress, availableResources, onNodeClick }: GraphCanvasProps) {
   const { nodes: baseNodes, edges: baseEdges } = useMemo(
     () => manifestToGraph(manifestBody, cells),
     [manifestBody, cells],
@@ -36,16 +37,17 @@ export function GraphCanvas({ manifestBody, cells, cellProgress, onNodeClick }: 
     return baseNodes.map((node) => {
       const d = node.data as CellNodeData;
       const progress = cellProgress[d.cellId];
+      const extra: Record<string, unknown> = {};
       if (progress) {
-        return {
-          ...node,
-          data: {
-            ...d,
-            status: progress.status,
-            progressMessage: progress.message,
-            progressAttempt: progress.attempt,
-          },
-        };
+        extra.status = progress.status;
+        extra.progressMessage = progress.message;
+        extra.progressAttempt = progress.attempt;
+      }
+      if (availableResources) {
+        extra.availableResources = availableResources;
+      }
+      if (Object.keys(extra).length > 0) {
+        return { ...node, data: { ...d, ...extra } };
       }
       return node;
     });
