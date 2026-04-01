@@ -39,8 +39,18 @@ function App() {
   const [appState, setAppState] = useState<AppState>("input");
   const [manifestBody, setManifestBody] = useState<string | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
-  const [cellProgress, setCellProgress] = useState<Record<string, CellProgress>>({});
-  const [runId, setRunId] = useState<string | null>(null);
+  const [cellProgress, setCellProgressRaw] = useState<Record<string, CellProgress>>(() => {
+    try { const s = localStorage.getItem("sporulator:cellProgress"); return s ? JSON.parse(s) : {}; }
+    catch { return {}; }
+  });
+  const setCellProgress = useCallback((updater: Record<string, CellProgress> | ((prev: Record<string, CellProgress>) => Record<string, CellProgress>)) => {
+    setCellProgressRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try { localStorage.setItem("sporulator:cellProgress", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+  const [runId, setRunId] = useState<string | null>(() => localStorage.getItem("sporulator:runId"));
   const [resources, setResources] = useState<ResourcesResponse | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [streamContent, setStreamContent] = useState("");
@@ -161,7 +171,10 @@ function App() {
       setStreaming(false);
     } else if (msg.type === "orchestration_started") {
       const payload = msg.payload as Record<string, unknown>;
-      setRunId((payload.run_id as string) || null);
+      const rid = (payload.run_id as string) || null;
+      setRunId(rid);
+      if (rid) localStorage.setItem("sporulator:runId", rid);
+      else localStorage.removeItem("sporulator:runId");
     } else if (msg.type === "orchestrator_event") {
       const evt = msg.payload as Record<string, unknown>;
       const cellId = normCellId(evt.cell_id as string);
@@ -206,6 +219,21 @@ function App() {
           [cellId]: { ...prev[cellId], status: "implemented", message: "Implementation complete" },
         }));
         refreshCells();
+      }
+    } else if (msg.type === "test_result") {
+      const result = msg.payload as Record<string, unknown>;
+      const cellId = normCellId(result.cell_id as string);
+      if (cellId && result.test_code) {
+        setCellProgress((prev) => ({
+          ...prev,
+          [cellId]: {
+            ...prev[cellId],
+            testCode: result.test_code as string,
+            testBody: result.test_body as string,
+            status: "test_ready",
+            message: "Tests regenerated",
+          },
+        }));
       }
     } else if (msg.type === "orchestrator_complete" || msg.type === "orchestrator_error") {
       const payload = msg.payload as Record<string, unknown>;
@@ -372,6 +400,17 @@ function App() {
     sendMessage(ws, "save_impl", { session_id: sessionId, run_id: runId, cell_id: cellId, source });
   }, [runId, ensureWs, sendMessage, sessionId]);
 
+  // Regenerate tests for a cell (outside orchestration flow)
+  const handleRegenerateTests = useCallback((cellId: string, brief: Record<string, unknown>, feedback: string) => {
+    const ws = ensureWs();
+    sendMessage(ws, "test_regenerate", {
+      session_id: sessionId,
+      brief,
+      feedback,
+      base_ns: "app",
+    });
+  }, [ensureWs, sendMessage, sessionId]);
+
   // Determine what shows in the main area
   const showGraph = appState === "ready" && manifestBody;
   const showSteps = appState === "decomposing";
@@ -516,6 +555,7 @@ function App() {
       onApproveImpl={handleApproveImpl}
       onRejectImpl={handleRejectImpl}
       onSaveImpl={handleSaveImpl}
+      onRegenerateTests={handleRegenerateTests}
     />
   );
 

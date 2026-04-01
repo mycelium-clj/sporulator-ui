@@ -14,6 +14,7 @@ interface CellPageProps {
   onApproveImpl?: (cellId: string) => void;
   onRejectImpl?: (cellId: string, feedback: string) => void;
   onSaveImpl?: (cellId: string, source: string) => void;
+  onRegenerateTests?: (cellId: string, brief: Record<string, unknown>, feedback: string) => void;
 }
 
 type TabId = "code" | "tests" | "schema";
@@ -23,6 +24,7 @@ export function CellPage({
   onRegenerate, onCellSaved,
   onApproveTests, onRejectTests, onSaveTests,
   onApproveImpl, onRejectImpl, onSaveImpl,
+  onRegenerateTests,
 }: CellPageProps) {
   const { cellId: rawCellId } = useParams<{ cellId: string }>();
   const navigate = useNavigate();
@@ -182,8 +184,18 @@ export function CellPage({
     const msg = chatInput.trim();
     if (!msg) return;
     setChatInput("");
-    if (activeTab === "tests" && (isTestReady || status === "test_approved")) {
-      onRejectTests?.(cellId, msg);
+    if (activeTab === "tests") {
+      if (isTestReady || status === "test_approved") {
+        onRejectTests?.(cellId, msg);
+      } else {
+        // Outside orchestration — regenerate tests with feedback
+        onRegenerateTests?.(cellId, {
+          id: cellId,
+          doc: cell?.Doc || "",
+          schema: cell?.Schema || "",
+          requires: [],
+        }, msg);
+      }
     } else if (activeTab === "code") {
       if (isImplReady) {
         onRejectImpl?.(cellId, msg);
@@ -196,7 +208,7 @@ export function CellPage({
         });
       }
     }
-  }, [chatInput, activeTab, isTestReady, isImplReady, status, cellId, cell, onRejectTests, onRejectImpl, onRegenerate]);
+  }, [chatInput, activeTab, isTestReady, isImplReady, status, cellId, cell, onRejectTests, onRejectImpl, onRegenerate, onRegenerateTests]);
 
   const handleChatKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleChatSend(); }
