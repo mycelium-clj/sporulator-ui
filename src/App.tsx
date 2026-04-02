@@ -14,7 +14,7 @@ import {
   getResources,
 } from "./lib/api";
 import type { ResourcesResponse } from "./lib/api";
-import { extractManifestEdn, parseManifestEdn } from "./lib/edn";
+import { extractManifestEdn, parseManifestEdn, stripManifestEdn } from "./lib/edn";
 import type { AppState, Cell, CellProgress, ChatMessage, StreamPhase, WsMessage } from "./types";
 import type { CellNodeData } from "./lib/graph";
 
@@ -152,10 +152,12 @@ function App() {
       setStreamPhase(null);
 
       const content = payload.content;
-      setStreamContent(content);
-      setChatMessages((prev) => [...prev, { role: "assistant", content }]);
-
       const ednBody = extractManifestEdn(content);
+      // Strip manifest EDN from chat — only show commentary
+      const chatContent = ednBody ? stripManifestEdn(content) : content;
+      setStreamContent(chatContent);
+      setChatMessages((prev) => [...prev, { role: "assistant", content: chatContent }]);
+
       if (ednBody) {
         setManifestBody(ednBody);
         persistManifest(ednBody);

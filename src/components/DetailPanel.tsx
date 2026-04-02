@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type { ChatMessage } from "../types";
 
+/** Strip manifest EDN code blocks from display text */
+function stripManifestBlocks(text: string): string {
+  // Remove fenced blocks containing :cells
+  const stripped = text.replace(/```(?:edn|clojure|clj)?\s*\n?\{[\s\S]*?:cells[\s\S]*?\}\s*```/g, "");
+  // Remove partial fenced blocks still being streamed (starts with ``` and has :cells but no closing ```)
+  const partial = stripped.replace(/```(?:edn|clojure|clj)?\s*\n?\{[^`]*:cells[^`]*/g, "");
+  return partial.trim();
+}
+
 interface DetailPanelProps {
   messages: ChatMessage[];
   streaming: boolean;
@@ -69,7 +78,7 @@ export function DetailPanel({
               {msg.role === "user" ? "You" : "Agent"}
             </div>
             <div className="prose prose-sm prose-invert max-w-none">
-              <Markdown>{msg.content}</Markdown>
+              <Markdown>{msg.role === "assistant" ? stripManifestBlocks(msg.content) : msg.content}</Markdown>
             </div>
           </div>
         ))}
@@ -83,7 +92,12 @@ export function DetailPanel({
             </div>
             {streamContent ? (
               <div className="prose prose-sm prose-invert max-w-none">
-                <Markdown>{streamContent}</Markdown>
+                <Markdown>{stripManifestBlocks(streamContent)}</Markdown>
+                {streamContent.includes(":cells") && (
+                  <div className="text-[10px] text-[var(--color-text)]/30 mt-1 italic">
+                    Updating workflow...
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-[var(--color-text)]/30 text-xs italic">

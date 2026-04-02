@@ -230,6 +230,35 @@ export function parseManifestEdn(body: string): unknown {
   return ednToJs(parseEdn(body));
 }
 
+// Strip manifest EDN from text, returning only the commentary.
+export function stripManifestEdn(text: string): string {
+  // Remove fenced code blocks containing manifest
+  let result = text.replace(/```(?:edn|clojure|clj)?\s*\n?\{[\s\S]*?:cells[\s\S]*?\}\s*```/g, "");
+
+  // If no fenced block removed, try removing bare manifest map
+  if (result === text) {
+    const mapStart = text.indexOf("{");
+    if (mapStart !== -1) {
+      let depth = 0;
+      for (let i = mapStart; i < text.length; i++) {
+        if (text[i] === "{") depth++;
+        else if (text[i] === "}") {
+          depth--;
+          if (depth === 0) {
+            const candidate = text.slice(mapStart, i + 1);
+            if (candidate.includes(":cells")) {
+              result = text.slice(0, mapStart) + text.slice(i + 1);
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  return result.trim() || "Workflow updated.";
+}
+
 // Extract the first EDN map containing :cells from an LLM response.
 // The agent wraps manifest EDN in ```edn or ```clojure fences, or inlines it.
 export function extractManifestEdn(text: string): string | null {
